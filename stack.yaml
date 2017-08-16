@@ -15,7 +15,8 @@
 # resolver:
 #  name: custom-snapshot
 #  location: "./custom-snapshot.yaml"
-resolver: nightly-2016-06-04
+# resolver: nightly-2016-06-04
+resolver: nightly-2017-07-31
 
 # User packages to be built.
 # Various formats can be used as shown in the example below.
@@ -37,9 +38,13 @@ resolver: nightly-2016-06-04
 # will not be run. This is useful for tweaking upstream packages.
 packages:
 - '.'
+- ../grampa/grammatical-parsers/
+- ../grampa/rank2classes/
+
 # Dependency packages to be pulled from upstream that are not in the resolver
 # (e.g., acme-missiles-0.3)
-extra-deps: []
+extra-deps:
+- rank2classes-0.2.1
 
 # Override default flag values for local packages and extra-deps
 flags: {}
@@ -48,8 +53,8 @@ flags: {}
 extra-package-dbs: []
 
 # Control whether we use the GHC we find on the path
-# system-ghc: true
-# 
+system-ghc: true
+ 
 # Require a specific version of stack, using version ranges
 # require-stack-version: -any # Default
 # require-stack-version: ">=1.1"
