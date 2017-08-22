@@ -31,7 +31,7 @@ instance Pretty (Interface a) where
 
 instance Pretty (Callback a) where
     pretty (Callback _ f retty args) = text "callback" <+> pretty f <+>
-                                       equals <+> pretty retty <+> prettyParenList args
+                                       equals <+> pretty retty <+> prettyParenList args <> semi
 
 prettyExtAttrs :: [ExtendedAttribute a] -> Doc -> Doc
 prettyExtAttrs [] _ = empty
@@ -55,9 +55,9 @@ instance Pretty (Exception a) where
 
 instance Pretty (Partial a) where
     pretty (PartialInterface _ x members) =
-        text "interface" <+> pretty x <+> scope members <> semi
+        text "partial" <> space <> text "interface" <+> pretty x <+> scope members <> semi
     pretty (PartialDictionary _ x members) =
-        text "dictionary" <+> pretty x <+> braces (vsep $ map pretty members) <> semi
+        text "partial" <> space <> text "dictionary" <+> pretty x <+> braces (vsep $ map pretty members) <> semi
 
 instance Pretty (Enum a) where
     pretty (Enum _ x enums) = text "enum" <+> pretty x <+> scope enums <> semi
@@ -103,7 +103,7 @@ instance Pretty (DictionaryMember a) where
 
 instance Pretty Default where
     pretty (DefaultValue cval) = pretty cval
-    pretty (DefaultString s)   = text (show s)
+    pretty (DefaultString s)   = text "\"" <> text s <> text "\""
 
 instance Pretty ConstValue where
     pretty (ConstBooleanLiteral b) = if b then text "true" else text "false"
@@ -134,7 +134,7 @@ instance Pretty Unrestricted where
     pretty Unrestricted = text "unrestricted"
 
 instance Pretty IntegerType where
-    pretty (IntegerType mUns width_) = prettyMaybe mUns pretty <> pretty width_
+    pretty (IntegerType mUns width_) = prettyMaybe mUns (\e -> pretty e <> space) <> pretty width_
 
 instance Pretty IntegerWidth where
     pretty Short = text "short"
@@ -158,7 +158,7 @@ instance Pretty (InterfaceMember a) where
 
 instance Pretty (Operation a) where
     pretty (Operation _ extAttrs mQ retty mIdent args) =
-        prettyExtAttrs extAttrs space <> pretty mQ <> pretty retty
+        prettyExtAttrs extAttrs space <> prettyMaybe mQ (\q-> pretty q <> space) <> pretty retty
             <+> prettyMaybe mIdent pretty <> prettyParenList args <> semi
 
 prettyParenList :: Pretty a => [a] -> Doc

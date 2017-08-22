@@ -1,29 +1,27 @@
 {-# LANGUAGE RecordWildCards, TemplateHaskell #-}
 
-module Language.WebIDL.Grammar (Tag(..), Comment(..), WebIDL(..), grammar) where
+module Language.WebIDL.Grammar where -- (Tag(..), Comment(..), WebIDL(..), grammar, parseIDL) where
 
 import Control.Applicative (Applicative(..), Alternative(..), optional)
+import Control.Monad (guard)
 import Data.Char (isAlphaNum, isDigit, isHexDigit, isLetter)
+import Data.Functor.Compose (getCompose)
 import Data.Monoid((<>))
+import Data.Set (Set, fromList, notMember)
 import qualified Rank2.TH
 import Text.Grampa
-import Text.Grampa.ContextFree.LeftRecursive (Parser)
-import Text.Parser.Char (char, oneOf, spaces)
+--import Text.Grampa.ContextFree.LeftRecursive (Parser)
+import Text.Grampa.ContextFree.Memoizing (Parser)
+--import Text.Grampa.ContextFree.Parallel (Parser)
+--import Text.Grampa.PEG.Packrat (Parser)
+import Text.Parsec.Pos(initialPos)
+import Text.Parser.Char (char, oneOf)
 import Text.Parser.Combinators (choice, count, manyTill, sepBy, skipMany, try)
 import Language.WebIDL.AST
-import Prelude hiding (Enum)
+import Language.WebIDL.Parser (Tag(..))
+import Prelude hiding (Enum, exponent)
 
--- | Tag of source
-data Tag = Tag {
-  _comments  :: [Comment]
---  _sourcePos :: SourcePos
-}
-
-instance Eq Tag where
-  (==) _ _ = True
-
-instance Show Tag where
-    show (Tag comment) = show comment
+spaces = whiteSpace
 
 data Comment = LineComment String | BlockComment String deriving Show
 
@@ -75,6 +73,10 @@ data WebIDL p = WebIDL {
 
 $(Rank2.TH.deriveAll ''WebIDL)
 
+parseIDL :: String -> Either ParseFailure [[Definition Tag]]
+parseIDL = getCompose . pIDL . parseComplete (fixGrammar grammar)
+--parseIDL = fmap (:[]) . pIDL . parseComplete (fixGrammar grammar)
+
 pModifier m s = optional (string s *> pSpaces *> return m)
 pParenComma p = parens (pSpaces *> sepBy (p <* pSpaces) (char ',' <* pSpaces))
 
@@ -107,7 +109,7 @@ grammar WebIDL{..} = WebIDL{
          <|> try (ExtendedAttributeIdent <$> getTag <*> (pIdent <* pEq) <*> pIdent)
          <|> try (ExtendedAttributeIdentList <$> getTag <*> (pIdent <* pEq) <*> pParenComma pIdent)
          <|> ExtendedAttributeNoArgs <$> getTag <*> pIdent,
-  pPartial = string "partial" *> pSpaces *>
+  pPartial = pExtAttrs *> string "partial" *> pSpaces *>
              (PartialInterface <$> getTag <*> (string "interface" *> pSpaces *> pIdent)
                                 <*> braces (many pInterfaceMember) <* semi
               <|> PartialDictionary <$> getTag <*> (string "dictionary" *> pSpaces *> pIdent)
@@ -115,7 +117,7 @@ grammar WebIDL{..} = WebIDL{
   pDictionary = Dictionary <$> getTag <*> (string "dictionary" *> pSpaces *> pIdent)
                            <*> pInheritance <*> braces (many pDictionaryMember) <* semi,
   pInterface = Interface <$> getTag <*> pExtAttrs <*> (string "interface" *> pSpaces *> pIdent)
-                         <*> pInheritance <*> braces (pSpaces *> many (pInterfaceMember <* pSpaces)) <* semi,
+                         <*> pInheritance <*> braces (many (pInterfaceMember <* pSpaces)) <* semi,
   pException = Exception <$> getTag <*> (string "exception" *> pSpaces *> pIdent)
                             <*> pInheritance <*> braces (many pExceptionMember),
   pInheritance = optional (spaces *> char ':'  *> spaces *> pIdent),
@@ -153,7 +155,7 @@ grammar WebIDL{..} = WebIDL{
                          <*> pMaybeIdent <* pSpaces
                          <*> pParenComma pArg <* semi,
   pArg =  try (ArgOptional <$> pExtAttrs <*> (string "optional" *> spaces *> pType <* pSpaces) <*> pArgumentName <*> pDefault)
-      <|> ArgNonOpt <$> pExtAttrs <*> (pType <* pSpaces) <*> (pModifier Ellipsis "...") <*> (pSpaces *> pArgumentName),
+      <|> ArgNonOpt <$> pExtAttrs <*> (pType <* pSpaces) <*> (pModifier Ellipsis "...") <*> pArgumentName,
   pArgumentName = try (ArgKey <$> pArgumentNameKeyword)
               <|> ArgIdent <$> pIdent,
   pArgumentNameKeyword =  string "attribute" *> return ArgAttribute
@@ -179,7 +181,7 @@ grammar WebIDL{..} = WebIDL{
                                                    <|> DefaultString <$> stringLit))
              <|> return Nothing,
   pQualifier =  try (string "static" *> return (Just QuaStatic))
-            <|> try (Just . QSpecials <$> many pSpecial)
+            <|> try (Just . QSpecials <$> some pSpecial)
             <|> return Nothing,
   pSpecial = string "getter" *> return Getter
          <|> string "setter" *> return Setter
@@ -211,7 +213,7 @@ grammar WebIDL{..} = WebIDL{
   pSingleType =  STyAny <$> (string "any" *> pTypeSuffix)
              <|> STyNonAny <$> pNonAnyType,
   pNonAnyType =  try (TyPrim <$> pPrimTy <*> pTypeSuffix)
-             <|> TySequence <$> (string "sequence" *> pSpaces *> string "<" *> pType <* string "<") <*> pNull
+             <|> TySequence <$> (string "sequence" *> pSpaces *> string "<" *> spaces *> pType <* string ">" <* spaces) <*> pNull
              <|> TyObject <$> (string "object" *> pTypeSuffix)
              <|> try (TyDOMString <$> (string "DOMString" *> pTypeSuffix))
              <|> try (TyDate <$> (string "Date" *> pTypeSuffix))
@@ -245,12 +247,16 @@ grammar WebIDL{..} = WebIDL{
 
 pInt      :: Parser WebIDL String Integer
 pFloat    :: Parser WebIDL String Double
-pIdent     = Ident <$> (moptional (string "_") <> satisfyCharInput isLetter 
-                        <> takeCharsWhile (\c-> isLetter c || isDigit c || c == '-' ||  c == '_'))
+pIdent     = do name <- (moptional (string "_") <> satisfyCharInput isLetter
+                         <> takeCharsWhile (\c-> isLetter c || isDigit c || c == '-' ||  c == '_'))
+                guard (notMember name reservedKeywordSet)
+                spaces
+                pure (Ident name)
 pInt       = read <$> (moptional (string "-")
                        <> (satisfyCharInput (liftA2 (&&) (>'0') (<='9')) <> takeCharsWhile isDigit <|>
                            string "0" <> (string "x" <|> string "X") <> takeCharsWhile1 isHexDigit <|>
                            string "0" <> takeCharsWhile (liftA2 (&&) (>'0') (<='7'))))
+             <* spaces
 pFloat     = read <$>
              let exponent = (string "e" <|> string "E") 
                             <> moptional (string "+" <|> string "-") <> takeCharsWhile1 isDigit
@@ -259,20 +265,93 @@ pFloat     = read <$>
                     takeCharsWhile isDigit <> string "." <> takeCharsWhile1 isDigit)
                 <> moptional exponent
                 <|> takeCharsWhile1 isDigit <> exponent
-semi       = string ";"
-stringLit  = string "\"" <> takeCharsWhile (/= '"') <> string "\""
+             <* spaces
+semi       = string ";" <* spaces
+stringLit  = string "\"" *> takeCharsWhile (/= '"') <* string "\""
+             <* spaces
 pEq        = spaces *> char '=' <* spaces
 
-getTag = pure (Tag [])
-parens p = string "(" *> pSpaces *> p <* string ")" <* pSpaces
-brackets p = string "[" *> pSpaces *> p <* string "]" <* pSpaces
-braces p = string "{" *> pSpaces *> p <* string "}" <* pSpaces
+getTag = pure (Tag [] $ initialPos "input")
+parens p = string "(" *> spaces *> p <* string ")" <* spaces
+brackets p = string "[" *> spaces *> p <* string "]" <* spaces
+braces p = string "{" *> pSpaces *> p <* string "}" <* spaces
 
-pSpaces = try (skipMany (spaces *> pComment <* spaces) <* spaces)
-          <|> spaces
+pSpaces = try (spaces *> skipMany (pComment <* spaces))
 pComment = try pLineComment <|> pBlockComment
 pLineComment = string "//" *> takeCharsWhile (/= '\n') *> pure ()
 pBlockComment = string "/*" *> skipMany (notFollowedBy (string "*/") *> takeCharsWhile (/= '*')) <* string "*/"
+
+reservedKeywordSet = fromList ["attribute" , "-" , "-Infinity" , "." , "..." , ":" , ";" , "<" , "=" , ">" , "?" , "ByteString" , "DOMString" , "Infinity" , "NaN", "any" , "boolean" , "byte" , "double" , "false" , "float" , "long" , "null" , "object" , "octet" , "or" , "optional" , "sequence" , "short" , "true" , "unsigned" , "void", "attribute" , "callback" , "const" , "deleter" , "dictionary" , "enum" , "getter" , "implements" , "inherit" , "interface" , "iterable" , "legacycaller" , "partial" , "required" , "serializer" , "setter" , "static" , "stringifier" , "typedef" , "unrestricted"]
+
+reservedKeywords, argumentNameKeyword, bufferRelatedType :: Parser WebIDL String String
+reservedKeywords = string "attribute"
+ <|> string "-"
+ <|> string "-Infinity"
+ <|> string "."
+ <|> string "..."
+ <|> string ":"
+ <|> string ";"
+ <|> string "<"
+ <|> string "="
+ <|> string ">"
+ <|> string "?"
+ <|> string "ByteString"
+ <|> string "DOMString"
+ <|> string "Infinity"
+ <|> string "NaN"
+-- <|> string "USVString"
+ <|> string "any"
+ <|> string "boolean"
+ <|> string "byte"
+ <|> string "double"
+ <|> string "false"
+ <|> string "float"
+ <|> string "long"
+ <|> string "null"
+ <|> string "object"
+ <|> string "octet"
+ <|> string "or"
+ <|> string "optional"
+ <|> string "sequence"
+ <|> string "short"
+ <|> string "true"
+ <|> string "unsigned"
+ <|> string "void"
+ <|> argumentNameKeyword
+-- <|> bufferRelatedType
+
+argumentNameKeyword = string "attribute"
+ <|> string "callback"
+ <|> string "const"
+ <|> string "deleter"
+ <|> string "dictionary"
+ <|> string "enum"
+ <|> string "getter"
+ <|> string "implements"
+ <|> string "inherit"
+ <|> string "interface"
+ <|> string "iterable"
+ <|> string "legacycaller"
+ <|> string "partial"
+ <|> string "required"
+ <|> string "serializer"
+ <|> string "setter"
+ <|> string "static"
+ <|> string "stringifier"
+ <|> string "typedef"
+ <|> string "unrestricted"
+
+bufferRelatedType = string "ArrayBuffer"
+ <|> string "DataView"
+ <|> string "Int8Array"
+ <|> string "Int16Array"
+ <|> string "Int32Array"
+ <|> string "Uint8Array"
+ <|> string "Uint16Array"
+ <|> string "Uint32Array"
+ <|> string "Uint8ClampedArray"
+ <|> string "Float32Array"
+ <|> string "Float64Array"
 
 {-
 [1] 	Definitions 	→ 	ExtendedAttributeList Definition Definitions

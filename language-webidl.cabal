@@ -22,7 +22,7 @@ library
                        Language.WebIDL.Grammar
                        Language.WebIDL.Parser
                        Language.WebIDL.PPrint
-  build-depends:       base >=4.9 && <4.12, parsec, parsers, grammatical-parsers, wl-pprint, rank2classes<1.0
+  build-depends:       base >=4.9 && <4.12, containers, parsec, parsers, grammatical-parsers, wl-pprint, rank2classes<1.0
   hs-source-dirs:      src
   default-language:    Haskell2010
   ghc-options:         -Wall -fno-warn-missing-signatures -fno-warn-orphans
