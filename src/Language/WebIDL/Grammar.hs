@@ -2,7 +2,7 @@
 
 module Language.WebIDL.Grammar where -- (Tag(..), Comment(..), WebIDL(..), grammar, parseIDL) where
 
-import Control.Applicative (Applicative(..), Alternative(..), optional)
+import Control.Applicative (Applicative(..), Alternative(..), liftA2, optional)
 import Control.Monad (guard)
 import Data.Char (isAlphaNum, isDigit, isHexDigit, isLetter)
 import Data.Functor.Compose (getCompose)
