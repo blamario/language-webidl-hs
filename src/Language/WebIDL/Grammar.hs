@@ -5,6 +5,7 @@ module Language.WebIDL.Grammar where -- (Tag(..), Comment(..), WebIDL(..), gramm
 import Control.Applicative (Applicative(..), Alternative(..), liftA2, optional)
 import Control.Monad (guard)
 import Data.Char (isAlphaNum, isDigit, isHexDigit, isLetter)
+import Data.Function (fix)
 import Data.Functor.Compose (getCompose)
 import Data.Monoid((<>))
 import Data.Set (Set, fromList, notMember)
@@ -14,11 +15,13 @@ import Text.Grampa
 import Text.Grampa.ContextFree.Memoizing (Parser)
 --import Text.Grampa.ContextFree.Parallel (Parser)
 --import Text.Grampa.PEG.Packrat (Parser)
+--import Text.Grampa.PEG.Backtrack (Parser)
 import Text.Parsec.Pos(initialPos)
 import Text.Parser.Char (char, oneOf)
 import Text.Parser.Combinators (choice, count, manyTill, sepBy, skipMany, try)
 import Language.WebIDL.AST
 import Language.WebIDL.Parser (Tag(..))
+
 import Prelude hiding (Enum, exponent)
 
 spaces = whiteSpace
@@ -75,7 +78,7 @@ $(Rank2.TH.deriveAll ''WebIDL)
 
 parseIDL :: String -> Either ParseFailure [[Definition Tag]]
 parseIDL = getCompose . pIDL . parseComplete (fixGrammar grammar)
---parseIDL = fmap (:[]) . pIDL . parseComplete (fixGrammar grammar)
+--parseIDL = fmap (:[]) . pIDL . parseComplete (fix grammar)
 
 pModifier m s = optional (string s *> pSpaces *> return m)
 pParenComma p = parens (pSpaces *> sepBy (p <* pSpaces) (char ',' <* pSpaces))
@@ -88,7 +91,7 @@ sepBy1 p sep = (:) <$> p <*> many (sep *> p)
 
 grammar :: -- (Eq t, Show t, TextualMonoid t) =>
            GrammarBuilder WebIDL WebIDL Parser String
-grammar WebIDL{..} = WebIDL{
+grammar ~WebIDL{..} = WebIDL{
   pIDL = pSpaces *> some (pDef <* pSpaces),
   pDef = try (DefInterface <$> pInterface)
      <|> DefCallback <$> pCallback
